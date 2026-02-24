@@ -1,13 +1,12 @@
 import crypto from "crypto";
+import type { WebhookEvent } from "@repo/types";
 
 const SIGNATURE_HEADER = "x-webhook-signature";
 const DELIVERY_HEADER = "x-webhook-id";
 const MAX_RETRIES = 3;
 const INITIAL_DELAY_MS = 1000;
 
-export type WebhookEvent =
-  | { type: "payment.completed"; data: { paymentLinkId: string; amount: string; currency: string; status: string } }
-  | { type: "payout.completed"; data: { payoutId: string; amount: string; status: string } };
+export type { WebhookEvent };
 
 function signPayload(payload: string, secret: string): string {
   return crypto.createHmac("sha256", secret).update(payload).digest("hex");
