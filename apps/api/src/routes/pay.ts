@@ -1,5 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { prisma } from "@repo/database";
+import type { PublicPaymentLinkResponse, ApiErrorResponse, PaymentLinkStatus } from "@repo/types";
 import { sendWebhook } from "../lib/webhook.js";
 
 export const payRouter: IRouter = Router();
@@ -10,19 +11,20 @@ payRouter.get("/v1/public/payment-links/:id", async (req: Request, res: Response
     const { id } = req.params;
     const link = await prisma.paymentLink.findUnique({ where: { id } });
     if (!link) {
-      res.status(404).json({ error: "Payment link not found" });
+      res.status(404).json({ error: "Payment link not found" } satisfies ApiErrorResponse);
       return;
     }
-    res.json({
+    const response: PublicPaymentLinkResponse = {
       id: link.id,
       amount: link.amount,
       currency: link.currency,
       description: link.description,
-      status: link.status,
-    });
+      status: link.status as PaymentLinkStatus,
+    };
+    res.json(response);
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: "Failed to get payment link" });
+    res.status(500).json({ error: "Failed to get payment link" } satisfies ApiErrorResponse);
   }
 });
 
@@ -32,11 +34,11 @@ payRouter.post("/v1/public/payment-links/:id/simulate-pay", async (req: Request,
     const { id } = req.params;
     const link = await prisma.paymentLink.findUnique({ where: { id }, include: { merchant: true } });
     if (!link) {
-      res.status(404).json({ error: "Payment link not found" });
+      res.status(404).json({ error: "Payment link not found" } satisfies ApiErrorResponse);
       return;
     }
     if (link.status === "paid") {
-      res.status(400).json({ error: "Payment already completed" });
+      res.status(400).json({ error: "Payment already completed" } satisfies ApiErrorResponse);
       return;
     }
     const updated = await prisma.paymentLink.update({
@@ -71,7 +73,7 @@ payRouter.post("/v1/public/payment-links/:id/simulate-pay", async (req: Request,
     });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: "Failed to simulate payment" });
+    res.status(500).json({ error: "Failed to simulate payment" } satisfies ApiErrorResponse);
   }
 });
 

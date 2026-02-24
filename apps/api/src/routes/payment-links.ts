@@ -1,5 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { prisma } from "@repo/database";
+import type { CreatePaymentLinkBody, PaymentLinkResponse, ApiErrorResponse, PaymentLinkStatus } from "@repo/types";
+import { DEFAULT_CURRENCY } from "@repo/types";
 import { requireApiKey } from "../middleware/auth.js";
 
 export const paymentLinksRouter: IRouter = Router();
@@ -10,14 +12,11 @@ paymentLinksRouter.use(requireApiKey);
 paymentLinksRouter.post("/", async (req: Request, res: Response) => {
   try {
     const merchant = (req as Request & { merchant: { id: string } }).merchant;
-    const { amount, currency = "USDC", description } = req.body as {
-      amount?: string;
-      currency?: string;
-      description?: string;
-    };
+    const body = req.body as Partial<CreatePaymentLinkBody>;
+    const { amount, currency = DEFAULT_CURRENCY, description } = body;
 
     if (!amount || typeof amount !== "string") {
-      res.status(400).json({ error: "amount is required and must be a string" });
+      res.status(400).json({ error: "amount is required and must be a string" } satisfies ApiErrorResponse);
       return;
     }
 
@@ -31,18 +30,19 @@ paymentLinksRouter.post("/", async (req: Request, res: Response) => {
     });
 
     const url = `${BASE_URL}/pay/${link.id}`;
-    res.status(201).json({
+    const response: PaymentLinkResponse = {
       id: link.id,
       url,
       amount: link.amount,
       currency: link.currency,
       description: link.description,
-      status: link.status,
-      createdAt: link.createdAt,
-    });
+      status: link.status as PaymentLinkStatus,
+      createdAt: link.createdAt.toISOString(),
+    };
+    res.status(201).json(response);
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: "Failed to create payment link" });
+    res.status(500).json({ error: "Failed to create payment link" } satisfies ApiErrorResponse);
   }
 });
 
@@ -53,20 +53,19 @@ paymentLinksRouter.get("/", async (req: Request, res: Response) => {
       where: { merchantId: merchant.id },
       orderBy: { createdAt: "desc" },
     });
-    res.json({
-      data: links.map((link) => ({
-        id: link.id,
-        url: `${BASE_URL}/pay/${link.id}`,
-        amount: link.amount,
-        currency: link.currency,
-        description: link.description,
-        status: link.status,
-        createdAt: link.createdAt,
-      })),
-    });
+    const data: PaymentLinkResponse[] = links.map((link) => ({
+      id: link.id,
+      url: `${BASE_URL}/pay/${link.id}`,
+      amount: link.amount,
+      currency: link.currency,
+      description: link.description,
+      status: link.status as PaymentLinkStatus,
+      createdAt: link.createdAt.toISOString(),
+    }));
+    res.json({ data });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: "Failed to list payment links" });
+    res.status(500).json({ error: "Failed to list payment links" } satisfies ApiErrorResponse);
   }
 });
 
@@ -78,21 +77,22 @@ paymentLinksRouter.get("/:id", async (req: Request, res: Response) => {
       where: { id, merchantId: merchant.id },
     });
     if (!link) {
-      res.status(404).json({ error: "Payment link not found" });
+      res.status(404).json({ error: "Payment link not found" } satisfies ApiErrorResponse);
       return;
     }
-    res.json({
+    const response: PaymentLinkResponse = {
       id: link.id,
       url: `${BASE_URL}/pay/${link.id}`,
       amount: link.amount,
       currency: link.currency,
       description: link.description,
-      status: link.status,
-      createdAt: link.createdAt,
-      updatedAt: link.updatedAt,
-    });
+      status: link.status as PaymentLinkStatus,
+      createdAt: link.createdAt.toISOString(),
+      updatedAt: link.updatedAt.toISOString(),
+    };
+    res.json(response);
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: "Failed to get payment link" });
+    res.status(500).json({ error: "Failed to get payment link" } satisfies ApiErrorResponse);
   }
 });
