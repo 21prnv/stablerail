@@ -16,8 +16,10 @@ This Turborepo includes the following packages/apps:
 
 ### Apps and Packages
 
+- `api`: Stablerail backend (Express + Prisma), uses `@repo/database`
 - `docs`: a [Next.js](https://nextjs.org/) app
 - `web`: another [Next.js](https://nextjs.org/) app
+- `@repo/database`: Prisma schema, client, and seed (SQLite); used by `api`
 - `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
 - `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
 - `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
@@ -31,6 +33,16 @@ This Turborepo has some additional tools already setup for you:
 - [TypeScript](https://www.typescriptlang.org/) for static type checking
 - [ESLint](https://eslint.org/) for code linting
 - [Prettier](https://prettier.io) for code formatting
+
+### API and database
+
+From the monorepo root (`stablerail/`):
+
+- **Run API (dev):** `pnpm dev --filter=api` or `pnpm --filter api dev`
+- **Database:** Copy `.env.example` to `.env` and to `apps/api/.env`. Set `DATABASE_URL` (e.g. `file:../../packages/database/prisma/dev.db` when running from `apps/api`). Then:
+  - `pnpm db:push` — push schema
+  - `pnpm db:seed` — seed demo merchant
+  - `pnpm db:studio` — Prisma Studio
 
 ### Build
 
