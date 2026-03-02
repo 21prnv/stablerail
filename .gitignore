@@ -4,6 +4,7 @@
 node_modules
 .pnp
 .pnp.js
+,connector-neon.json
 
 # Local env files
 .env
