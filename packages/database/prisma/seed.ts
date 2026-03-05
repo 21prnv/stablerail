@@ -9,16 +9,16 @@ const prisma = new PrismaClient({ adapter });
 
 async function main() {
   const merchant = await prisma.merchant.upsert({
-    where: { apiKey: "orbitx-demo-key-123" },
-    update: { webhookSecret: "orbitx-demo-webhook-secret" },
+    where: { apiKey: "demo-key-123" },
+    update: { webhookSecret: "demo-webhook-secret" },
     create: {
       name: "Demo Merchant",
-      apiKey: "orbitx-demo-key-123",
+      apiKey: "demo-key-123",
       webhookUrl: "https://webhook.site/your-unique-id",
-      webhookSecret: "orbitx-demo-webhook-secret",
+      webhookSecret: "demo-webhook-secret",
     },
   });
-  console.log("Seeded merchant:", merchant.name, "| API Key: orbitx-demo-key-123 | Webhook secret: orbitx-demo-webhook-secret");
+  console.log("Seeded merchant:", merchant.name, "| API Key: demo-key-123 | Webhook secret: demo-webhook-secret");
 }
 
 main()

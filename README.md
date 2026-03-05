@@ -1,147 +1,231 @@
-# Turborepo starter
+# Stablerail — A Fintech Webhook Architecture That Works 99% of the Time
 
-This Turborepo starter is maintained by the Turborepo core team.
+A payment platform built around **one source of truth** (the database), **domain events** (DB triggers), and **durable event streaming** (Kafka + Debezium) so webhooks are reliable, auditable, and scalable.
 
-## Using this example
+---
 
-Run the following command:
+## Why this architecture
 
-```sh
-npx create-turbo@latest
+- **Single source of truth:** All payment and payout state lives in Postgres. The API is the only writer.
+- **Events in the same transaction:** Triggers insert into a `DomainEvent` table when status changes. No “state updated but event lost.”
+- **Durable stream:** Debezium streams `DomainEvent` to Kafka. If the webhook consumer is down, events wait in Kafka and are replayed.
+- **Async webhook delivery:** A dedicated consumer sends HTTP webhooks with retries and logging. The API never blocks on webhook delivery.
+- **High delivery rate:** With retries, backoff, and Kafka at-least-once semantics, the pipeline achieves high reliability; the remaining failures are typically merchant endpoint issues (down, slow, or misconfigured).
+
+
+## Design diagrams
+
+### High-level architecture
+
+```mermaid
+flowchart TB
+    subgraph Users
+        M[Merchant / Dashboard]
+        P[Payer]
+    end
+
+    subgraph Platform["Platform"]
+        subgraph API["API (stateless)"]
+            REST[REST · API Key auth]
+        end
+
+        subgraph DB["Postgres"]
+            PL[PaymentLink]
+            PY[Payout]
+            DE[DomainEvent]
+            WD[WebhookDelivery]
+        end
+
+        subgraph Events["Event pipeline"]
+            DZ[Debezium CDC]
+            K[Kafka]
+            WC[Webhook consumer]
+        end
+    end
+
+    M -->|create link / payout · complete| REST
+    P -->|pay link| REST
+    REST -->|write| PL
+    REST -->|write / update| PY
+    PL -->|trigger INSERT| DE
+    PY -->|trigger INSERT| DE
+    DE -->|WAL| DZ
+    DZ -->|stream| K
+    K -->|consume| WC
+    WC -->|signed POST · retry| M
+    WC -->|log| WD
 ```
 
-## What's inside?
+### End-to-end sequence (payment link paid)
 
-This Turborepo includes the following packages/apps:
+```mermaid
+sequenceDiagram
+    participant Payer
+    participant API
+    participant DB as Postgres
+    participant Trigger
+    participant DE as DomainEvent
+    participant DZ as Debezium
+    participant K as Kafka
+    participant WC as Webhook consumer
+    participant Merchant
 
-### Apps and Packages
+    Payer->>API: POST /pay/:id (simulate)
+    API->>DB: UPDATE PaymentLink status = paid
+    DB->>Trigger: AFTER UPDATE
+    Trigger->>DE: INSERT (payment_link.paid, objectId)
+    API-->>Payer: 200 OK
 
-- `api`: Stablerail backend (Express + Prisma), uses `@repo/database`
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/database`: Prisma schema, client, and seed (SQLite); used by `api`
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
+    Note over DB,DE: Same transaction
 
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
-
-### Utilities
-
-This Turborepo has some additional tools already setup for you:
-
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
-
-### API and database
-
-From the monorepo root (`stablerail/`):
-
-- **Run API (dev):** `pnpm dev --filter=api` or `pnpm --filter api dev`
-- **Database:** Copy `.env.example` to `.env` and to `apps/api/.env`. Set `DATABASE_URL` (e.g. `file:../../packages/database/prisma/dev.db` when running from `apps/api`). Then:
-  - `pnpm db:push` — push schema
-  - `pnpm db:seed` — seed demo merchant
-  - `pnpm db:studio` — Prisma Studio
-
-### Build
-
-To build all apps and packages, run the following command:
-
-```
-cd my-turborepo
-
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo build
-
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo build
-yarn dlx turbo build
-pnpm exec turbo build
+    DE->>DZ: WAL / logical replication
+    DZ->>K: produce(topic, envelope)
+    K->>WC: consume(message)
+    WC->>DB: SELECT merchant, webhookUrl
+    WC->>DB: SELECT PaymentLink (enrich)
+    WC->>Merchant: POST webhook (signed, retries)
+    Merchant-->>WC: 200
+    WC->>DB: INSERT WebhookDelivery
+    WC->>K: commit offset
 ```
 
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+## Project structure
 
 ```
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo build --filter=docs
-
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo build --filter=docs
-yarn exec turbo build --filter=docs
-pnpm exec turbo build --filter=docs
+stablerail/
+├── apps/
+│   ├── api/                    # Express API (payment links, payouts, pay, webhooks)
+│   │   └── src/
+│   │       ├── app.ts          # App wiring, routes
+│   │       ├── index.ts        # Entry, server listen
+│   │       ├── lib/
+│   │       │   └── webhook.ts  # Sign, send, retry, log webhooks
+│   │       ├── middleware/
+│   │       │   └── auth.ts     # API key auth
+│   │       ├── routes/
+│   │       │   ├── health.ts
+│   │       │   ├── payment-links.ts
+│   │       │   ├── payouts.ts
+│   │       │   ├── pay.ts      # Public pay + checkout page
+│   │       │   └── webhooks.ts # Settings, deliveries
+│   │       └── workers/
+│   │           └── webhook-consumer.ts   # Kafka consumer → webhook delivery
+│   │
+│   └── web/                    # Next.js dashboard
+│       └── app/
+│           ├── layout.tsx
+│           ├── page.tsx        # Landing
+│           └── dashboard/
+│               ├── page.tsx    # Payment links + Payouts section
+│               ├── payouts/
+│               │   ├── page.tsx
+│               │   └── create/page.tsx
+│               └── webhooks/page.tsx
+│
+├── packages/
+│   ├── database/               # Prisma + client
+│   │   ├── prisma/
+│   │   │   ├── schema.prisma   # Merchant, PaymentLink, Payout, etc.
+│   │   │   └── seed.ts
+│   │   ├── scripts/
+│   │   │   └── setup-domain-event-trigger.ts   # Create Payout + PaymentLink triggers
+│   │   └── src/
+│   │       ├── client.ts
+│   │       └── index.ts
+│   │
+│   ├── types/                  # Shared types (API, webhook events)
+│   │   └── src/
+│   │       ├── api.ts
+│   │       ├── webhook.ts
+│   │       ├── domain.ts
+│   │       └── index.ts
+│   │
+│   ├── ui/                     # Shared UI components
+│   ├── typescript-config/      # TS configs
+│   └── eslint-config/         # ESLint configs
+│
+├── docker/
+│   ├── docker-compose.yml     # Kafka + Debezium Connect
+│   └── README.md              # Kafka/Debezium + Neon + consumer setup
+│
+├── scripts/
+│   └── register-debezium-connector.ts   # Register Debezium connector (env: DATABASE_URL / NEON_DIRECT_URL)
+│
+├── connector-neon.json        # Debezium connector config (DomainEvent → Kafka)
+├── package.json               # Root scripts, turbo
+├── turbo.json
+└── README.md                  # This file
 ```
 
-### Develop
+---
 
-To develop all apps and packages, run the following command:
+## Key files
 
-```
-cd my-turborepo
+| Path | Purpose |
+|------|--------|
+| `apps/api/src/index.ts` | API entry; loads env, starts server. |
+| `apps/api/src/app.ts` | Mounts health, payment-links, pay, payouts, webhooks routes. |
+| `apps/api/src/routes/payouts.ts` | Create/list/get payouts; simulate complete/fail (writes only; no inline webhooks). |
+| `apps/api/src/routes/pay.ts` | Public payment link details + simulate pay; checkout page at `/pay/:id`. |
+| `apps/api/src/routes/payment-links.ts` | Create/list/get payment links (API key). |
+| `apps/api/src/routes/webhooks.ts` | Webhook settings + delivery history (API key). |
+| `apps/api/src/lib/webhook.ts` | `sendWebhook`, `sendWebhookAndWait`, signature, retries, WebhookDelivery logging. |
+| `apps/api/src/workers/webhook-consumer.ts` | Consumes DomainEvent topic; enriches; sends webhooks; commits offset. |
+| `packages/database/prisma/schema.prisma` | Merchant, PaymentLink, Payout (and DomainEvent/WebhookDelivery/Idempotency when using Postgres + triggers). |
+| `packages/database/scripts/setup-domain-event-trigger.ts` | Ensures Payout and PaymentLink → DomainEvent triggers exist (Postgres). |
+| `scripts/register-debezium-connector.ts` | Registers Debezium connector for DomainEvent (uses env for DB URL). |
+| `docker/docker-compose.yml` | Kafka + Debezium Connect. |
+| `docker/README.md` | How to run Kafka/Debezium, Neon publication/slot, connector, webhook consumer. |
 
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo dev
+---
 
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo dev
-yarn exec turbo dev
-pnpm exec turbo dev
-```
+## Quick start
 
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+1. **Install and DB**
+   ```bash
+   pnpm install
+   pnpm db:generate
+   pnpm db:push
+   pnpm db:seed
+   ```
 
-```
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo dev --filter=web
+2. **Run API and web**
+   ```bash
+   pnpm dev
+   ```
 
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo dev --filter=web
-yarn exec turbo dev --filter=web
-pnpm exec turbo dev --filter=web
-```
+3. **Webhook pipeline (optional, for production-style flow)**
+   - Start Kafka + Connect: `docker compose -f docker/docker-compose.yml up -d`
+   - In Neon: enable logical replication; create publication for `DomainEvent`; create replication slot `debezium`
+   - Register connector: `pnpm exec tsx scripts/register-debezium-connector.ts` (set `NEON_DIRECT_URL` or `DATABASE_URL`)
+   - Run consumer: `pnpm --filter api run webhook-consumer` (requires `webhook-consumer` script and Kafka env in `apps/api`)
 
-### Remote Caching
+See `docker/README.md` for full steps and env vars.
 
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
+---
 
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
+## Scripts (root)
 
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
+| Command | Description |
+|--------|-------------|
+| `pnpm dev` | Run all apps (turbo). |
+| `pnpm build` | Build all. |
+| `pnpm db:generate` | Generate Prisma client. |
+| `pnpm db:push` | Push schema to DB. |
+| `pnpm db:studio` | Open Prisma Studio. |
+| `pnpm db:seed` | Seed DB. |
+| `pnpm lint` | Lint all. |
+| `pnpm check-types` | Typecheck all. |
 
-```
-cd my-turborepo
+---
 
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo login
+## Tech stack
 
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo login
-yarn exec turbo login
-pnpm exec turbo login
-```
+- **Monorepo:** pnpm workspaces + Turbo.
+- **API:** Express, API key auth, Prisma.
+- **Web:** Next.js (dashboard).
+- **DB:** Prisma (SQLite for local; Postgres/Neon for production + CDC).
+- **Events:** Postgres triggers → DomainEvent table → Debezium → Kafka.
+- **Webhooks:** Kafka consumer → HTTP POST with HMAC signature, retries, delivery log.
 
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
-
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
-
-```
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo link
-
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo link
-yarn exec turbo link
-pnpm exec turbo link
-```
-
-## Useful Links
-
-Learn more about the power of Turborepo:
-
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
+This is the fintech webhook architecture that aims to work 99% of the time by keeping state and events in one place, streaming durably to Kafka, and delivering webhooks asynchronously with retries and logging.
