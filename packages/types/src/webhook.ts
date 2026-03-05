@@ -1,4 +1,3 @@
-/** Webhook event: payment completed */
 export type WebhookEventPaymentCompleted = {
   type: "payment.completed";
   data: {
@@ -9,7 +8,6 @@ export type WebhookEventPaymentCompleted = {
   };
 };
 
-/** Webhook event: payout completed */
 export type WebhookEventPayoutCompleted = {
   type: "payout.completed";
   data: {
@@ -19,13 +17,11 @@ export type WebhookEventPayoutCompleted = {
   };
 };
 
-/** All webhook event types (matches API webhook engine) */
 export type WebhookEvent = WebhookEventPaymentCompleted | WebhookEventPayoutCompleted;
 
-/** Full payload sent to merchant (id + type + data + createdAt) */
 export type WebhookPayload = {
   id: string;
   type: WebhookEvent["type"];
   data: WebhookEvent["data"];
-  createdAt: string; // ISO
+  createdAt: string;
 };

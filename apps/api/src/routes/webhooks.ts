@@ -7,7 +7,6 @@ export const webhooksRouter: IRouter = Router();
 
 webhooksRouter.use(requireApiKey);
 
-/** GET /v1/webhooks/settings — return merchant webhook URL (for dashboard tracking page) */
 webhooksRouter.get("/settings", async (req: Request, res: Response) => {
   try {
     const merchant = (req as Request & { merchant: { id: string } }).merchant;
@@ -29,7 +28,6 @@ webhooksRouter.get("/settings", async (req: Request, res: Response) => {
   }
 });
 
-/** GET /v1/webhooks/deliveries — list recent webhook deliveries */
 webhooksRouter.get("/deliveries", async (req: Request, res: Response) => {
   try {
     const merchant = (req as Request & { merchant: { id: string } }).merchant;

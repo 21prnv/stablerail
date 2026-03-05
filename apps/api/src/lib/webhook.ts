@@ -12,10 +12,6 @@ function signPayload(payload: string, secret: string): string {
   return crypto.createHmac("sha256", secret).update(payload).digest("hex");
 }
 
-/**
- * Verify webhook signature (for merchant use).
- * Expects header: x-webhook-signature: sha256=<hex>
- */
 export function verifyWebhookSignature(payload: string, signatureHeader: string, secret: string): boolean {
   const expected = "sha256=" + signPayload(payload, secret);
   return crypto.timingSafeEqual(Buffer.from(signatureHeader, "utf8"), Buffer.from(expected, "utf8"));
@@ -34,10 +30,6 @@ async function deliver(url: string, payload: string, signature: string, webhookI
   return res.ok;
 }
 
-/**
- * Send webhook with HMAC-SHA256 signature and retries (exponential backoff).
- * Runs in background; does not throw.
- */
 export function sendWebhook(
   webhookUrl: string,
   event: WebhookEvent,

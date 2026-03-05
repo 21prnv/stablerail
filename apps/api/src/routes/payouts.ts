@@ -153,7 +153,6 @@ payoutsRouter.get("/:id", async (req: Request, res: Response) => {
   }
 });
 
-// Simulate lifecycle: complete or fail a payout and send webhook
 payoutsRouter.post("/:id/simulate-complete", async (req: Request, res: Response) => {
   try {
     const merchant = (req as Request & { merchant: { id: string } }).merchant;

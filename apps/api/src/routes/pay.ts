@@ -5,7 +5,6 @@ import { sendWebhook } from "../lib/webhook.js";
 
 export const payRouter: IRouter = Router();
 
-// Public: get payment link details for checkout page (no auth)
 payRouter.get("/v1/public/payment-links/:id", async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -28,7 +27,6 @@ payRouter.get("/v1/public/payment-links/:id", async (req: Request, res: Response
   }
 });
 
-// Public: simulate USDC payment (no auth, for demo)
 payRouter.post("/v1/public/payment-links/:id/simulate-pay", async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -46,7 +44,6 @@ payRouter.post("/v1/public/payment-links/:id/simulate-pay", async (req: Request,
       data: { status: "paid" },
     });
 
-    // Fire webhook in background if merchant has webhookUrl
     if (link.merchant.webhookUrl) {
       const secret = link.merchant.webhookSecret ?? link.merchant.apiKey;
       sendWebhook(
@@ -77,7 +74,6 @@ payRouter.post("/v1/public/payment-links/:id/simulate-pay", async (req: Request,
   }
 });
 
-// Serve checkout page at /pay/:id
 payRouter.get("/pay/:id", (req: Request, res: Response) => {
   const { id } = req.params;
   const base = process.env.BASE_URL ?? "http://localhost:4000";
